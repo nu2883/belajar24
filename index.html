@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Quiz App</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .option-button {
+            width: 100%; /* Mengatur lebar tombol agar memenuhi wadah */
+        }
+    </style>
+</head>
+<body>
+<div id="app" class="container mt-5">
+    <h2 class="mt-3">Belajar Pilihan Ganda</h2>
+    <input type="file" @change="loadExcelFile" accept=".xlsx, .xls">
+    <button @click="startQuiz" class="btn btn-primary mt-3">Start</button>
+
+    <button class="btn btn-info position-fixed" style="top: 20px; right: 20px;" @click="openModal">Pilih Soal</button>
+    <button class="btn btn-secondary position-fixed" style="top: 20px; right: 150px;" @click="toggleSound()">Toggle Suara</button>
+    <div v-if="currentQuestion" class="mt-4">
+        <h3>{{ currentQuestion.question }}</h3>
+        <div class="mt-3">
+            <div v-for="(option, index) in currentQuestion.shuffledOptions" :key="index" class="mb-2">
+                <button @click="selectAnswer(option)" class="btn btn-outline-primary option-button">
+                    {{ option.text }}
+                </button>
+            </div>
+        </div>
+        <p v-if="feedback" class="mt-3">{{ feedback }}</p>
+    </div>
+
+    <div v-if="quizFinished" class="mt-4">
+        <h4>Rekap Hasil:</h4>
+        <p>Jumlah Soal: {{ totalQuestions }}</p>
+        <p>Jawaban Benar: {{ correctAnswers }}</p>
+        <p>Jawaban Salah: {{ wrongAnswers }}</p>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal fade" id="categoryModal" tabindex="-1" aria-labelledby="categoryModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="categoryModalLabel">Pilih Kategori Soal</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <ul>
+                        <li @click="selectCategory('biologi')">1 SMA Biologi</li>
+                        <li @click="selectCategory('fisika')">1 SMA Fisika</li>
+                        <li @click="selectCategory('bahasaIndonesia')">2 SMA Bahasa Indonesia</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/vue@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+<script>
+    new Vue({
+        el: '#app',
+        data: {
+            questions: [],
+            currentQuestionIndex: -1,
+            currentQuestion: null,
+            feedback: '',
+            correctAnswers: 0,
+            wrongAnswers: 0,
+            quizFinished: false,
+            totalQuestions: 0,
+            soundEnabled: true // Add soundEnabled property
+        },
+        methods: {
+            toggleSound() {
+                alert(soundEnabled ? "Suara diaktifkan" : "Suara dinonaktifkan");
+        // soundEnabled = !soundEnabled;
+    },
+            loadExcelFile(event) {
+                const file = event.target.files[0];
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const sheetName = workbook.SheetNames[0];
+                    const sheet = workbook.Sheets[sheetName];
+                    const rawData = XLSX.utils.sheet_to_json(sheet, {header: ['question', 'option1', 'option2', 'option3', 'option4', 'correct']});
+
+                    // Format questions and shuffle options
+                    this.questions = rawData.map(item => {
+                        const options = [
+                            { text: item.option1, isCorrect: item.correct === 'A' },
+                            { text: item.option2, isCorrect: item.correct === 'B' },
+                            { text: item.option3, isCorrect: item.correct === 'C' },
+                            { text: item.option4, isCorrect: item.correct === 'D' }
+                        ];
+                        return {
+                            question: item.question,
+                            shuffledOptions: this.shuffleArray(options) // Shuffle options
+                        };
+                    });
+
+                    // Shuffle the questions themselves
+                    this.questions = this.shuffleArray(this.questions);
+                };
+                reader.readAsArrayBuffer(file);
+            },
+            startQuiz() {
+                // Jika tidak ada data dari Excel, gunakan data soal yang sudah ada
+                if (this.questions.length === 0) {
+                    this.questions = this.getDefaultQuestions();
+                }
+                this.currentQuestionIndex = 0;
+                this.correctAnswers = 0;
+                this.wrongAnswers = 0;
+                this.quizFinished = false;
+                this.showQuestion();
+            },
+            showQuestion() {
+                if (this.currentQuestionIndex < this.questions.length) {
+                    this.currentQuestion = this.questions[this.currentQuestionIndex];
+                    this.feedback = '';
+                    this.speak(this.currentQuestion.question);
+                    this.totalQuestions = this.questions.length;
+                } else {
+                    this.quizFinished = true;
+                    this.currentQuestion = null;
+                    this.speak('Kuis selesai!');
+                }
+            },
+            selectAnswer(selected) {
+                if (selected.isCorrect) {
+                    this.feedback = 'Benar!';
+                    this.correctAnswers++;
+                    this.speak('benar!', this.nextQuestion);
+                } else {
+                    const correctAnswer = this.currentQuestion.shuffledOptions.find(option => option.isCorrect).text;
+                    this.feedback = `Salah! Jawaban yang benar adalah ${correctAnswer}`;
+                    this.wrongAnswers++;
+                    this.speak(`yang benar adalah ${correctAnswer}`, this.nextQuestion);
+                }
+            },
+            nextQuestion() {
+                this.currentQuestionIndex++;
+                this.showQuestion();
+            },
+            speak(text, callback) {
+                const msg = new SpeechSynthesisUtterance(text);
+                msg.lang = 'id-ID'; // Set bahasa Indonesia
+
+                // Pilih suara bahasa Indonesia jika tersedia
+                const voices = window.speechSynthesis.getVoices();
+                const indonesianVoice = voices.find(voice => voice.lang === 'id-ID');
+                if (indonesianVoice) {
+                    msg.voice = indonesianVoice;
+                }
+
+                // Panggil callback setelah text-to-speech selesai
+                msg.onend = () => {
+                    if (callback) callback();
+                };
+
+                window.speechSynthesis.speak(msg);
+            },
+            shuffleArray(array) {
+                for (let i = array.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [array[i], array[j]] = [array[j], array[i]];
+                }
+                return array;
+            },
+            getDefaultQuestions() {
+                return [
+                    { question: "Apa nama ibukota Indonesia?", option1: "Jakarta", option2: "Bali", option3: "Surabaya", option4: "Bandung", correct: "A" },
+                    { question: "Siapa penemu hukum gravitasi?", option1: "Isaac Newton", option2: "Albert Einstein", option3: "Galileo", option4: "Nikola Tesla", correct: "A" },
+                    { question: "Apa gas yang paling melimpah di atmosfer Bumi?", option1: "Nitrogen", option2: "Oksigen", option3: "Karbon Dioksida", option4: "Argon", correct: "A" },
+                    { question: "Apa nama proses perubahan air menjadi uap?", option1: "Evaporasi", option2: "Kondensasi", option3: "Sublimasi", option4: "Presipitasi", correct: "A" },
+                    { question: "Apa yang menyebabkan pelangi?", option1: "Pembiasan cahaya", option2: "Refleksi cahaya", option3: "Absorpsi cahaya", option4: "Penguraian cahaya", correct: "A" },
+                    { question: "Apa yang dimaksud dengan fotosintesis?", option1: "Proses pembuatan makanan oleh tumbuhan", option2: "Proses pencernaan makanan", option3: "Proses pernapasan pada hewan", option4: "Proses penguraian bahan organik", correct: "A" },
+                    { question: "Zat apa yang dibutuhkan oleh manusia untuk bernafas?", option1: "Oksigen", option2: "Karbon Dioksida", option3: "Nitrogen", option4: "Hidrogen", correct: "A" },
+                    { question: "Apa nama sistem pencernaan pada manusia?", option1: "Gastrointestinal", option2: "Respirasi", option3: "Sirkulasi", option4: "Ekskresi", correct: "A" },
+                    { question: "Apa yang dimaksud dengan ekosistem?", option1: "Hubungan antara makhluk hidup dan lingkungan", option2: "Proses reproduksi pada tumbuhan", option3: "Sistem saraf pada hewan", option4: "Proses fotosintesis", correct: "A" },
+                    { question: "Siapa yang menciptakan teori evolusi?", option1: "Charles Darwin", option2: "Albert Einstein", option3: "Isaac Newton", option4: "Louis Pasteur", correct: "A" },
+                ].map(item => {
+                    const options = [
+                        { text: item.option1, isCorrect: item.correct === 'A' },
+                        { text: item.option2, isCorrect: item.correct === 'B' },
+                        { text: item.option3, isCorrect: item.correct === 'C' },
+                        { text: item.option4, isCorrect: item.correct === 'D' }
+                    ];
+                    return {
+                        question: item.question,
+                        shuffledOptions: this.shuffleArray(options) // Shuffle options
+                    };
+                });
+            },
+            openModal() {
+                const modal = new bootstrap.Modal(document.getElementById('categoryModal'));
+                modal.show();
+            },
+            selectCategory(category) {
+                let questions;
+                switch(category) {
+                    case 'biologi':
+                        questions = this.getBiologyQuestions();
+                        break;
+                    case 'fisika':
+                        questions = this.getPhysicsQuestions();
+                        break;
+                    case 'bahasaIndonesia':
+                        questions = this.getBahasaIndonesiaQuestions();
+                        break;
+                }
+                this.questions = questions; // Set questions to selected category
+                this.startQuiz(); // Start the quiz
+                const modal = bootstrap.Modal.getInstance(document.getElementById('categoryModal'));
+                modal.hide();
+            },
+            getBiologyQuestions() {
+                return [
+                    { question: "Apa itu sel?", option1: "Unit terkecil kehidupan", option2: "Bagian dari tubuh", option3: "Benda mati", option4: "Campuran", correct: "A" },
+                    { question: "Fungsi utama akar pada tumbuhan?", option1: "Menyerap air dan nutrisi", option2: "Menghasilkan makanan", option3: "Memberi dukungan", option4: "Menghasilkan oksigen", correct: "A" },
+                    { question: "Apa yang dimaksud dengan fotosintesis?", option1: "Proses pembuatan makanan oleh tumbuhan", option2: "Proses pembusukan", option3: "Proses pernapasan", option4: "Proses reproduksi", correct: "A" },
+                    { question: "Organ tubuh mana yang berfungsi untuk bernafas?", option1: "Paru-paru", option2: "Jantung", option3: "Hati", option4: "Ginjal", correct: "A" },
+                    { question: "Apa yang menyebabkan spesies punah?", option1: "Perubahan lingkungan", option2: "Reproduksi", option3: "Adaptasi", option4: "Berkembang biak", correct: "A" },
+                    { question: "Apa itu gen?", option1: "Pewarisan sifat", option2: "Bagian dari sel", option3: "Molekul energi", option4: "Zat kimia", correct: "A" },
+                    { question: "Siapa yang menemukan vaksin?", option1: "Edward Jenner", option2: "Louis Pasteur", option3: "Marie Curie", option4: "Charles Darwin", correct: "A" },
+                    { question: "Fungsi klorofil pada tumbuhan?", option1: "Menyerap cahaya", option2: "Menghasilkan energi", option3: "Menyimpan air", option4: "Menghasilkan karbondioksida", correct: "A" },
+                    { question: "Apa itu ekosistem?", option1: "Hubungan antara makhluk hidup dan lingkungannya", option2: "Proses pertumbuhan", option3: "Proses reproduksi", option4: "Sistem transportasi", correct: "A" },
+                    { question: "Apa yang dilakukan hewan herbivora?", option1: "Memakan tumbuhan", option2: "Memakan daging", option3: "Memakan segala", option4: "Tidak makan", correct: "A" },
+                ].map(item => {
+                    const options = [
+                        { text: item.option1, isCorrect: item.correct === 'A' },
+                        { text: item.option2, isCorrect: item.correct === 'B' },
+                        { text: item.option3, isCorrect: item.correct === 'C' },
+                        { text: item.option4, isCorrect: item.correct === 'D' }
+                    ];
+                    return {
+                        question: item.question,
+                        shuffledOptions: this.shuffleArray(options) // Shuffle options
+                    };
+                });
+            },
+            getPhysicsQuestions() {
+                return [
+                    { question: "Apa hukum pertama Newton?", option1: "Hukum Inersia", option2: "Hukum Aksi", option3: "Hukum Reaksi", option4: "Hukum Gravitasi", correct: "A" },
+                    { question: "Apa yang dimaksud dengan energi kinetik?", option1: "Energi gerak", option2: "Energi potensial", option3: "Energi thermal", option4: "Energi listrik", correct: "A" },
+                    { question: "Apa satuan ukuran gaya?", option1: "Newton", option2: "Joule", option3: "Watt", option4: "Pascal", correct: "A" },
+                    { question: "Apa yang menyebabkan gelombang suara?", option1: "Getaran", option2: "Cahaya", option3: "Magnet", option4: "Elektron", correct: "A" },
+                    { question: "Apa yang dimaksud dengan hukum Archimedes?", option1: "Gaya apung pada benda", option2: "Hukum gravitasi", option3: "Energi potensial", option4: "Gerakan planet", correct: "A" },
+                    { question: "Apa yang terjadi saat dua benda bertabrakan?", option1: "Memindahkan momentum", option2: "Melebur", option3: "Menghancurkan", option4: "Membesar", correct: "A" },
+                    { question: "Apa itu gaya sentripetal?", option1: "Gaya yang menarik benda ke pusat", option2: "Gaya gesekan", option3: "Gaya gravitasi", option4: "Gaya elastis", correct: "A" },
+                    { question: "Apa yang diukur oleh termometer?", option1: "Suhu", option2: "Tekanan", option3: "Volume", option4: "Massa", correct: "A" },
+                    { question: "Apa yang dimaksud dengan hukum Ohm?", option1: "Hubungan antara tegangan dan arus", option2: "Hubungan antara gaya dan massa", option3: "Hubungan antara tekanan dan volume", option4: "Hubungan antara energi dan waktu", correct: "A" },
+                    { question: "Apa yang dilakukan oleh magnet?", option1: "Menarik benda feromagnet", option2: "Membuat listrik", option3: "Menghasilkan cahaya", option4: "Menambah massa", correct: "A" },
+                ].map(item => {
+                    const options = [
+                        { text: item.option1, isCorrect: item.correct === 'A' },
+                        { text: item.option2, isCorrect: item.correct === 'B' },
+                        { text: item.option3, isCorrect: item.correct === 'C' },
+                        { text: item.option4, isCorrect: item.correct === 'D' }
+                    ];
+                    return {
+                        question: item.question,
+                        shuffledOptions: this.shuffleArray(options) // Shuffle options
+                    };
+                });
+            },
+            getBahasaIndonesiaQuestions() {
+                return [
+                    { question: "Apa yang dimaksud dengan majas?", option1: "Gaya bahasa", option2: "Pengertian kata", option3: "Peribahasa", option4: "Ciri-ciri", correct: "A" },
+                    { question: "Apa itu sinonim?", option1: "Kata yang sama makna", option2: "Kata yang berlawanan", option3: "Kata yang berbeda", option4: "Kata yang berulang", correct: "A" },
+                    { question: "Apa yang dimaksud dengan narasi?", option1: "Kisah yang diceritakan", option2: "Puisi", option3: "Dialog", option4: "Cerpen", correct: "A" },
+                    { question: "Apa yang dimaksud dengan kalimat deklaratif?", option1: "Kalimat pernyataan", option2: "Kalimat pertanyaan", option3: "Kalimat perintah", option4: "Kalimat seru", correct: "A" },
+                    { question: "Apa yang dimaksud dengan konjungsi?", option1: "Kata penghubung", option2: "Kata benda", option3: "Kata kerja", option4: "Kata sifat", correct: "A" },
+                    { question: "Apa itu antitesis?", option1: "Perbandingan yang berlawanan", option2: "Kata yang sama", option3: "Pengulangan kata", option4: "Makna ganda", correct: "A" },
+                    { question: "Apa yang dimaksud dengan tema?", option1: "Pokok pikiran", option2: "Cerita", option3: "Latar", option4: "Tokoh", correct: "A" },
+                    { question: "Apa yang dimaksud dengan puisi?", option1: "Karya sastra yang terikat", option2: "Karya sastra prosa", option3: "Karya ilmiah", option4: "Karya jurnalistik", correct: "A" },
+                    { question: "Apa itu peribahasa?", option1: "Ungkapan yang kaya makna", option2: "Cerita rakyat", option3: "Sastra", option4: "Novel", correct: "A" },
+                    { question: "Apa yang dimaksud dengan gaya bahasa personifikasi?", option1: "Memberikan sifat manusia pada benda mati", option2: "Menggambarkan sifat", option3: "Mengulang kata", option4: "Membandingkan", correct: "A" },
+                ].map(item => {
+                    const options = [
+                        { text: item.option1, isCorrect: item.correct === 'A' },
+                        { text: item.option2, isCorrect: item.correct === 'B' },
+                        { text: item.option3, isCorrect: item.correct === 'C' },
+                        { text: item.option4, isCorrect: item.correct === 'D' }
+                    ];
+                    return {
+                        question: item.question,
+                        shuffledOptions: this.shuffleArray(options) // Shuffle options
+                    };
+                });
+            }
+        }
+    });
+</script>
+</body>
+</html>
